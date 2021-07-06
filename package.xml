@@ -1,0 +1,20 @@
+<package format="2">
+  <name>lmf_controller</name>
+  <version>1.0.0</version>
+  <description>LMF control package</description>
+
+  <maintainer email="dinh.h.nguyen@ntnu.no">Dinh Huan Nguyen</maintainer>
+  <license>TODO</license>
+  <author>Dinh Huan Nguyen</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>cmake_modules</depend>
+  <depend>dynamic_reconfigure</depend>
+  <depend>geometry_msgs</depend>
+  <depend>mav_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>roscpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>tf</depend>
+</package>
