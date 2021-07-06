@@ -1,6 +1,6 @@
 #include <iostream>
 #include <cmath>
-#include "lmf_control/pid.h"
+#include "pid.h"
 
 using namespace std;
 

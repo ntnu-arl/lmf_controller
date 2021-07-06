@@ -1,4 +1,6 @@
-#pragma once
+#ifndef PID_H
+#define PID_H
+
 class PIDImpl;
 class PID
 {
@@ -21,3 +23,4 @@ public:
 private:
     PIDImpl *pimpl;
 };
+#endif // PID_H

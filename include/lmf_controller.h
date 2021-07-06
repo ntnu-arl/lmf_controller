@@ -20,7 +20,7 @@
 
 #include <mav_msgs/conversions.h>
 #include <mav_msgs/default_topics.h>
-#include "lmf_control/pid.h"
+#include "pid.h"
 
 namespace lmf_control
 {
