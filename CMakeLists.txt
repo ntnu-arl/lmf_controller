@@ -5,12 +5,16 @@ add_definitions(-std=c++11)
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
-  mav_msgs
   nav_msgs
   roscpp
   sensor_msgs
   tf
   cmake_modules
+)
+
+find_package(mav_msgs REQUIRED  
+  PATHS /opt/ros/melodic/share
+  NO_DEFAULT_PATH
 )
 
 find_package(Eigen3 REQUIRED)
