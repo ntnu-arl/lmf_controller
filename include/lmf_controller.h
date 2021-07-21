@@ -100,9 +100,9 @@ namespace lmf_control
         double Kp_x, Ki_x, Kd_x, acc_x_max, alpha_x;
         double Kp_y, Ki_y, Kd_y, acc_y_max, alpha_y;
         double Kp_z, Ki_z, Kd_z, acc_z_max, alpha_z;
-        double Kp_vel_x, Ki_vel_x, Kd_vel_x, alpha_vel_x;
-        double Kp_vel_y, Ki_vel_y, Kd_vel_y, alpha_vel_y;
-        double Kp_vel_z, Ki_vel_z, Kd_vel_z, alpha_vel_z;
+        double Kp_vel_x, Ki_vel_x, Kd_vel_x;
+        double Kp_vel_y, Ki_vel_y, Kd_vel_y;
+        double Kp_vel_z, Ki_vel_z, Kd_vel_z;
         double odom_dtime;
         double z_static;
         PID *pid_x;
