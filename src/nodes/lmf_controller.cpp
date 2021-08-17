@@ -9,11 +9,13 @@ namespace lmf_control
           receive_thrust_cmd(false),
           receive_vel_cmd(false),
           receive_pos_cmd(false),
-          receive_first_goal(false)
+          receive_first_goal(false),
+          has_new_range(false)
     {
         ros::NodeHandle nh;
         ros::NodeHandle pnh("~");
         GetRosParameter(pnh, "is_sim", false, &is_sim);
+        GetRosParameter(pnh, "use_range_sensor", false, &use_range_sensor);
         GetRosParameter(pnh, "use_vehicle_frame", true, &use_vehicle_frame);
         GetRosParameter(pnh, "use_yaw_stabilize", false, &use_yaw_stabilize);
         GetRosParameter(pnh, "fixed_height", false, &fixed_height);   // get latest height cmd from goal topic
@@ -67,7 +69,8 @@ namespace lmf_control
         //need to know current yaw angle of the robot if acc vector is expressed in world frame
         cmd_rate_thrust_sub_ = nh.subscribe("command/rate_thrust", 1,
                                             &LMFControllerNode::RateThrustCallback, this);
-        odometry_sub_ = nh.subscribe(kDefaultOdometryTopic, 100, &LMFControllerNode::OdometryCallback, this);
+        odometry_sub_ = nh.subscribe(kDefaultOdometryTopic, 1, &LMFControllerNode::OdometryCallback, this);
+        range_sub_ = nh.subscribe("range_sensor", 1, &LMFControllerNode::RangeCallback, this);
         goal_pose_sub_ = nh.subscribe("goal", 1, &LMFControllerNode::CmdPositionCallback, this);
         cmd_velocity_sub_ = nh.subscribe("cmd_velocity", 1, &LMFControllerNode::CmdVelocityCallback, this);
 
@@ -277,6 +280,12 @@ namespace lmf_control
         return yaw_rate_cmd;
     }
 
+    void LMFControllerNode::RangeCallback(const sensor_msgs::Range &range_msg)
+    {
+        range_value = range_msg;
+        has_new_range = true;
+    }
+
     // TODO: what if odometry drifts?
     // we only need velocity and attitude feedback
     void LMFControllerNode::OdometryCallback(const nav_msgs::OdometryConstPtr &odometry_msg)
@@ -292,8 +301,8 @@ namespace lmf_control
             cnt += 1;
             if (cnt >= 51)
             {
-                odom_dtime = odom_dtime / 50;
-                //odom_dtime = 0.02;
+                //odom_dtime = odom_dtime / 50;
+                odom_dtime = 0.02;
                 ROS_WARN_STREAM("Odom dtime:" << odom_dtime);
                 frame_id = odometry_msg->header.frame_id;
                 pid_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_x, Kd_x, Ki_x, alpha_x);
@@ -359,23 +368,43 @@ namespace lmf_control
             }
         }
 
+        double current_roll = current_rpy(0);
+        double current_pitch = current_rpy(1);
+        double current_yaw = (use_vehicle_frame) ? 0.0 : current_rpy(2);
+
         // if (fixed_height && (receive_thrust_cmd || receive_vel_cmd) && receive_first_goal)
         // {
         //     // modify z thrust to keep the same height
         //     rate_thrust_cmd.thrust.z = pid_z->calculate(goal_odometry.position_W(2), odometry.position_W(2));
         // }
+
         if (fixed_height && (receive_thrust_cmd || receive_vel_cmd))
         {
             // modify z thrust to keep the same height
-            rate_thrust_cmd.thrust.z = pid_z->calculate(z_static, odometry.position_W(2));
+            if (use_range_sensor)
+            {
+                if (has_new_range)
+                {
+                    double z_range_compensated = range_value.range * (cos(current_roll) * cos(current_pitch));
+                    has_new_range = false;
+                    // ROS_INFO_STREAM("z_range_compensated:" << z_range_compensated);
+                    rate_thrust_cmd.thrust.z = pid_z->calculate(z_static, z_range_compensated);
+                }
+                ros::Duration time_diff = ros::Time::now() - range_value.header.stamp;
+                if (time_diff.toSec() > 0.25)
+                {
+                    ROS_WARN("RANGE MSG rate is LOW");
+                }
+            }
+            else
+            {
+                rate_thrust_cmd.thrust.z = pid_z->calculate(z_static, odometry.position_W(2));
+            }
         }
         
         mav_msgs::RateThrust reference = rate_thrust_cmd;
         mav_msgs::RollPitchYawrateThrustPtr rpyrate_thrust_cmd(new mav_msgs::RollPitchYawrateThrust);
 
-        double current_roll = current_rpy(0);
-        double current_pitch = current_rpy(1);
-        double current_yaw = (use_vehicle_frame) ? 0.0 : current_rpy(2);
         Eigen::Vector3d thrust_sp;
         thrust_sp << reference.thrust.x, reference.thrust.y, reference.thrust.z;
         thrust_sp = (thrust_sp + Eigen::Vector3d(0, 0, kGravity)) * mass;

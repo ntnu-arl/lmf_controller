@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <ros/ros.h>
+#include <sensor_msgs/Range.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>
@@ -80,6 +81,8 @@ namespace lmf_control
         static constexpr double kGravity = 9.8066;
 
         bool use_vehicle_frame;
+        bool use_range_sensor;
+        bool has_new_range;
         bool receive_first_odom;
         bool receive_thrust_cmd;
         bool receive_vel_cmd;
@@ -105,6 +108,7 @@ namespace lmf_control
         double Kp_vel_z, Ki_vel_z, Kd_vel_z;
         double odom_dtime;
         double z_static;
+        sensor_msgs::Range range_value;
         PID *pid_x;
         PID *pid_y;
         PID *pid_z;
@@ -117,6 +121,7 @@ namespace lmf_control
         // subscribers
         ros::Subscriber cmd_rate_thrust_sub_;
         ros::Subscriber odometry_sub_;
+        ros::Subscriber range_sub_;
         ros::Subscriber goal_pose_sub_;
         ros::Subscriber goal_training_pose_sub_;
         ros::Subscriber cmd_velocity_sub_;
@@ -128,6 +133,8 @@ namespace lmf_control
         void RateThrustCallback(const mav_msgs::RateThrustPtr &rate_thrust_msg);
 
         void OdometryCallback(const nav_msgs::OdometryConstPtr &odometry_msg);
+
+        void RangeCallback(const sensor_msgs::Range &range_msg);
 
         void CmdPositionCallback(const geometry_msgs::Pose &goal_msg);
 
