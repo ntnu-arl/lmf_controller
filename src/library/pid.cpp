@@ -7,10 +7,10 @@ using namespace std;
 class PIDImpl
 {
 public:
-    PIDImpl(double dt, double max, double min, double Kp, double Kd, double Ki, double alpha);
+    PIDImpl(double dt, double max, double min, double Kp, double Kd, double Ki, double alphaP, double alphaD);
     ~PIDImpl();
     double calculate(double setpoint, double pv);
-    void update_gains(double P, double D, double I, double alpha);
+    void update_gains(double P, double D, double I, double alphaP, double alphaD);
     void reset();
 
 private:
@@ -22,22 +22,24 @@ private:
     double _Ki;
     double _error_prev = 0.0;
     double _integral = 0.0;
-    double _alpha = 0.5;
+    double _alphaP = 0.0;
+    double _alphaD = 0.0;
     double _Dout_pre = 0.0;
+    double _Pout_pre = 0.0;
 };
 
-PID::PID(double dt, double max, double min, double Kp, double Kd, double Ki, double alpha)
+PID::PID(double dt, double max, double min, double Kp, double Kd, double Ki, double alphaP, double alphaD)
 {
-    pimpl = new PIDImpl(dt, max, min, Kp, Kd, Ki, alpha);
+    pimpl = new PIDImpl(dt, max, min, Kp, Kd, Ki, alphaP, alphaD);
 }
 double PID::calculate(double setpoint, double pv)
 {
     return pimpl->calculate(setpoint, pv);
 }
 
-void PID::update_gains(double P, double D, double I, double alpha)
+void PID::update_gains(double P, double D, double I, double alphaP, double alphaD)
 {
-    return pimpl->update_gains(P, D, I, alpha);
+    return pimpl->update_gains(P, D, I, alphaP, alphaD);
 }
 void PID::reset()
 {
@@ -52,7 +54,7 @@ PID::~PID()
 PIDImpl::PIDImpl(double dt,
                  double max, double min,
                  double Kp, double Kd, double Ki,
-                 double alpha) : _dt(dt),
+                 double alphaP, double alphaD) : _dt(dt),
                                  _max(max),
                                  _min(min),
                                  _Kp(Kp),
@@ -60,16 +62,18 @@ PIDImpl::PIDImpl(double dt,
                                  _Ki(Ki),
                                  _error_prev(0),
                                  _integral(0),
-                                 _alpha(0.0)
+                                 _alphaP(0.0),
+                                 _alphaD(0.0)
 {
 }
 
-void PIDImpl::update_gains(double P, double D, double I, double alpha)
+void PIDImpl::update_gains(double P, double D, double I, double alphaP, double alphaD)
 {
     _Kp = P;
     _Kd = D;
     _Ki = I;
-    _alpha = alpha;
+    _alphaP = alphaP;
+    _alphaD = alphaD;
 }
 double PIDImpl::calculate(double setpoint, double pv)
 {
@@ -78,20 +82,24 @@ double PIDImpl::calculate(double setpoint, double pv)
     double error = setpoint - pv;
     // std::cout << "error = " << error << endl;
     // Proportional
-    double Pout = _Kp * error;
+    double Pout_tmp = _Kp * error;
+    double Pout = _alphaP * _Pout_pre + (1 - _alphaP) * Pout_tmp;
 
     // Integral
-    _integral += error * _dt;
+    if (std::abs(error) < 0.15) // only integrate when the error is small
+    {
+        _integral += error * _dt;
+    }
     double Iout = _Ki * _integral;
-    if (Iout > 0.5 * _max)
-        Iout = 0.5 * _max;
-    else if (Iout < 0.5 * _min)
-        Iout = 0.5 * _min;
+    if ((Iout > 0.5) && (error < 0))
+        Iout = 0.5;
+    else if ((Iout < -0.5) && (error > 0))
+        Iout = -0.5;
 
     // Derivative
     double derivative = (error - _error_prev) / _dt;
     double Dout_tmp = _Kd * derivative;
-    double Dout = _alpha * _Dout_pre + (1 - _alpha) * Dout_tmp;
+    double Dout = _alphaD * _Dout_pre + (1 - _alphaD) * Dout_tmp;
 
     // Calculate total output
     double output = Pout + Iout + Dout;
@@ -105,6 +113,7 @@ double PIDImpl::calculate(double setpoint, double pv)
     // Swap errors
     _error_prev = error;
     _Dout_pre = Dout;
+    _Pout_pre = Pout;
 
     return output;
 }

@@ -305,12 +305,12 @@ namespace lmf_control
                 odom_dtime = 0.02;
                 ROS_WARN_STREAM("Odom dtime:" << odom_dtime);
                 frame_id = odometry_msg->header.frame_id;
-                pid_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_x, Kd_x, Ki_x, alpha_x);
-                pid_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_y, Kd_y, Ki_y, alpha_y);
-                pid_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_z, Kd_z, Ki_z, alpha_z);
-                pid_vel_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_vel_x, Kd_vel_x, Ki_vel_x, alpha_x);
-                pid_vel_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_vel_y, Kd_vel_y, Ki_vel_y, alpha_y);
-                pid_vel_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_vel_z, Kd_vel_z, Ki_vel_z, alpha_z);
+                pid_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_x, Kd_x, Ki_x, 0.0, alpha_x);
+                pid_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_y, Kd_y, Ki_y, 0.0, alpha_y);
+                pid_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_z, Kd_z, Ki_z, 0.0, alpha_z);
+                pid_vel_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_vel_x, Kd_vel_x, Ki_vel_x, alpha_x, 0.0);
+                pid_vel_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_vel_y, Kd_vel_y, Ki_vel_y, alpha_y, 0.0);
+                pid_vel_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_vel_z, Kd_vel_z, Ki_vel_z, alpha_z, 0.0);
                 receive_first_odom = true;
             }
             else
