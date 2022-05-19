@@ -106,6 +106,8 @@ namespace lmf_control
         double Kp_vel_x, Ki_vel_x, Kd_vel_x;
         double Kp_vel_y, Ki_vel_y, Kd_vel_y;
         double Kp_vel_z, Ki_vel_z, Kd_vel_z;
+        std::vector<double> integrator_pos_max, integrator_vel_max;
+        std::vector<double> antiwindup_radius_pos, antiwindup_radius_vel;
         double odom_dtime;
         double z_static;
         sensor_msgs::Range range_value;

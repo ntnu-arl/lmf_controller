@@ -7,7 +7,8 @@ using namespace std;
 class PIDImpl
 {
 public:
-    PIDImpl(double dt, double max, double min, double Kp, double Kd, double Ki, double alphaP, double alphaD);
+    PIDImpl(double dt, double max, double min, double Kp, double Kd, double Ki, 
+            double alphaP, double alphaD, double antiwindup_radius, double integrator_max);
     ~PIDImpl();
     double calculate(double setpoint, double pv);
     void update_gains(double P, double D, double I, double alphaP, double alphaD);
@@ -20,6 +21,8 @@ private:
     double _Kp;
     double _Kd;
     double _Ki;
+    double _antiwindup_radius;
+    double _integrator_max;
     double _error_prev = 0.0;
     double _integral = 0.0;
     double _alphaP = 0.0;
@@ -28,9 +31,10 @@ private:
     double _Pout_pre = 0.0;
 };
 
-PID::PID(double dt, double max, double min, double Kp, double Kd, double Ki, double alphaP, double alphaD)
+PID::PID(double dt, double max, double min, double Kp, double Kd, double Ki, 
+        double alphaP, double alphaD, double antiwindup_radius, double integrator_max)
 {
-    pimpl = new PIDImpl(dt, max, min, Kp, Kd, Ki, alphaP, alphaD);
+    pimpl = new PIDImpl(dt, max, min, Kp, Kd, Ki, alphaP, alphaD, antiwindup_radius, integrator_max);
 }
 double PID::calculate(double setpoint, double pv)
 {
@@ -54,12 +58,15 @@ PID::~PID()
 PIDImpl::PIDImpl(double dt,
                  double max, double min,
                  double Kp, double Kd, double Ki,
-                 double alphaP, double alphaD) : _dt(dt),
+                 double alphaP, double alphaD, 
+                 double antiwindup_radius, double integrator_max) : _dt(dt),
                                  _max(max),
                                  _min(min),
                                  _Kp(Kp),
                                  _Kd(Kd),
                                  _Ki(Ki),
+                                 _antiwindup_radius(antiwindup_radius),
+                                 _integrator_max(integrator_max),
                                  _error_prev(0),
                                  _integral(0),
                                  _alphaP(0.0),
@@ -86,15 +93,15 @@ double PIDImpl::calculate(double setpoint, double pv)
     double Pout = _alphaP * _Pout_pre + (1 - _alphaP) * Pout_tmp;
 
     // Integral
-    if (std::abs(error) < 0.15) // only integrate when the error is small
+    if (std::abs(error) < _antiwindup_radius) // only integrate when the error is small
     {
         _integral += error * _dt;
     }
+    if (_integral > _integrator_max)
+        _integral = _integrator_max;
+    else if (_integral < -_integrator_max)
+        _integral = -_integrator_max;
     double Iout = _Ki * _integral;
-    if ((Iout > 0.5) && (error < 0))
-        Iout = 0.5;
-    else if ((Iout < -0.5) && (error > 0))
-        Iout = -0.5;
 
     // Derivative
     double derivative = (error - _error_prev) / _dt;
