@@ -69,8 +69,8 @@ PIDImpl::PIDImpl(double dt,
                                  _integrator_max(integrator_max),
                                  _error_prev(0),
                                  _integral(0),
-                                 _alphaP(0.0),
-                                 _alphaD(0.0)
+                                 _alphaP(alphaP),
+                                 _alphaD(alphaD)
 {
 }
 
