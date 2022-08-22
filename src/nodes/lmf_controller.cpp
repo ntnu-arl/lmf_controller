@@ -104,15 +104,16 @@ namespace lmf_control
         rate_thrust_cmd.angular_rates.z = 0.0;
 
         //need to know current yaw angle of the robot if acc vector is expressed in world frame
-        cmd_rate_thrust_sub_ = nh.subscribe("command/rate_thrust", 1,
-                                            &LMFControllerNode::RateThrustCallback, this);
+        // cmd_rate_thrust_sub_ = nh.subscribe("command/rate_thrust", 1,
+        //                                     &LMFControllerNode::RateThrustCallback, this);
         odometry_sub_ = nh.subscribe(kDefaultOdometryTopic, 1, &LMFControllerNode::OdometryCallback, this);
-        range_sub_ = nh.subscribe("range_sensor", 1, &LMFControllerNode::RangeCallback, this);
-        goal_pose_sub_ = nh.subscribe("goal", 1, &LMFControllerNode::CmdPositionCallback, this);
+        // range_sub_ = nh.subscribe("range_sensor", 1, &LMFControllerNode::RangeCallback, this);
+        // goal_pose_sub_ = nh.subscribe("goal", 1, &LMFControllerNode::CmdPositionCallback, this);
         cmd_velocity_sub_ = nh.subscribe("cmd_velocity", 1, &LMFControllerNode::CmdVelocityCallback, this);
 
-        cmd_roll_pitch_yawrate_thrust_pub_ = nh.advertise<mav_msgs::RollPitchYawrateThrust>(
-            kDefaultCommandRollPitchYawrateThrustTopic, 1);
+        // cmd_roll_pitch_yawrate_thrust_pub_ = nh.advertise<mav_msgs::RollPitchYawrateThrust>(
+        //     kDefaultCommandRollPitchYawrateThrustTopic, 1);
+        cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("/mavros/setpoint_velocity/cmd_vel_unstamped", 1);
 
         reset_service_ = nh.advertiseService("pid_reset", &LMFControllerNode::ResetCallback, this);
 
@@ -184,43 +185,47 @@ namespace lmf_control
 
     void LMFControllerNode::CmdVelocityCallback(const geometry_msgs::Twist &cmd_vel)
     {
-        Eigen::Vector3d robot_euler_angles;
-        //convertCmdVel2WorldFrame(cmd_vel, odometry, cmd_vel_W);
-        cmd_vel_V = cmd_vel;
-        if (swap_yaw_rate)
+        double yaw_rate_cmd;
+        Eigen::Vector3d current_rpy;
+        odometry.getEulerAngles(&current_rpy);
+        // convertROS2ENU(cmd_vel, cmd_vel_received); // cmd_vel_received is in ENU frame
+        cmd_vel_received = cmd_vel;
+        if (swap_yaw_rate) // receive reference yaw angle
         {
-            goal_yaw = wrapYaw(cmd_vel.angular.z);
+            goal_yaw = wrapYaw(cmd_vel_received.angular.z);
+            yaw_rate_cmd = calculateYawCtrl(goal_yaw, current_rpy(2));
+        }
+        else
+        {
+            yaw_rate_cmd = cmd_vel_received.angular.z;
         }
         
+        // TODO: convert to body frame?
+        cmd_vel_send.linear = cmd_vel_received.linear;
+        cmd_vel_send.angular.x = 0.0;
+        cmd_vel_send.angular.y = 0.0;
+        cmd_vel_send.angular.z = yaw_rate_cmd;
+        cmd_vel_pub_.publish(cmd_vel_send);
+
         receive_pos_cmd = false;
         receive_vel_cmd = true;
+        receive_thrust_cmd = false;
         // DEBUG
         ROS_INFO_STREAM("Received cmd_vel, cmd_vel: linear x " << cmd_vel.linear.x << ",y " << cmd_vel.linear.y << ",z " << cmd_vel.linear.z
                                                                << ", twist x " << cmd_vel.angular.x << ",y " << cmd_vel.angular.y << ",z " << cmd_vel.angular.z);
-        // odometry.getEulerAngles(&robot_euler_angles);
-        // ROS_INFO_STREAM("Robot RPY:" << robot_euler_angles.transpose() * 180 / M_PI << " deg");
         ROS_INFO("**********");
     }
 
-    // void LMFControllerNode::convertCmdVel2WorldFrame(const geometry_msgs::Twist &cmd_vel, const mav_msgs::EigenOdometry &robot_odom,
-    //                                                       geometry_msgs::Twist &cmd_vel_W)
-    // {
-    //   if (use_vehicle_frame)
-    //   {
-    //     Eigen::Vector3d linear_vel_V, linear_vel_W;
-    //     robot_odom.getEulerAngles(&robot_euler_angles);
-    //     linear_vel_V << cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.linear.z;
-    //     linear_vel_W = Eigen::AngleAxisd(robot_euler_angles(2), Eigen::Vector3d::UnitZ()) * linear_vel_V;
-    //     cmd_vel_W.linear.x = linear_vel_W(0);
-    //     cmd_vel_W.linear.y = linear_vel_W(1);
-    //     cmd_vel_W.linear.z = linear_vel_W(2);
-    //     cmd_vel_W.twist = cmd_vel.twist;
-    //   }
-    //   else
-    //   {
-    //     cmd_vel_W = cmd_vel;
-    //   }
-    // }
+    void LMFControllerNode::convertROS2ENU(const geometry_msgs::Twist &twist_ros_msg, geometry_msgs::Twist &twist_enu_msg)
+    {
+        twist_enu_msg.linear.x = -twist_ros_msg.linear.y;
+        twist_enu_msg.linear.y = twist_ros_msg.linear.x;
+        twist_enu_msg.linear.z = twist_ros_msg.linear.z;
+
+        twist_enu_msg.angular.x = -twist_ros_msg.angular.y;
+        twist_enu_msg.angular.y = twist_ros_msg.angular.x;
+        twist_enu_msg.angular.z = twist_ros_msg.angular.z;        
+    }
 
     void LMFControllerNode::convertGoal2WorldFrame(const geometry_msgs::Pose &goal, const mav_msgs::EigenOdometry &robot_odom,
                                                    mav_msgs::EigenOdometry *goal_in_world)
@@ -327,233 +332,32 @@ namespace lmf_control
     // we only need velocity and attitude feedback
     void LMFControllerNode::OdometryCallback(const nav_msgs::OdometryConstPtr &odometry_msg)
     {
-        ROS_INFO_ONCE("AccCommandConverter node got first odometry message.");
-        if (!receive_first_odom)
-        {
-            static int cnt = 0;
-            static ros::Time previous_time = odometry_msg->header.stamp;
-            ros::Time current_time = odometry_msg->header.stamp;
-            odom_dtime += (current_time - previous_time).toSec();
-            previous_time = current_time;
-            cnt += 1;
-            if (cnt >= 51)
-            {
-                //odom_dtime = odom_dtime / 50;
-                odom_dtime = 0.02;
-                ROS_WARN_STREAM("Odom dtime:" << odom_dtime);
-                frame_id = odometry_msg->header.frame_id;
-                pid_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_x, Kd_x, Ki_x, 0.0, alpha_x, antiwindup_radius_pos.at(0), integrator_pos_max.at(0));
-                pid_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_y, Kd_y, Ki_y, 0.0, alpha_y, antiwindup_radius_pos.at(1), integrator_pos_max.at(1));
-                pid_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_z, Kd_z, Ki_z, 0.0, alpha_z, antiwindup_radius_pos.at(2), integrator_pos_max.at(2));
-                pid_vel_x = new PID(odom_dtime, acc_x_max, -acc_x_max, Kp_vel_x, Kd_vel_x, Ki_vel_x, alpha_x, 0.0, antiwindup_radius_vel.at(0), integrator_vel_max.at(0));
-                pid_vel_y = new PID(odom_dtime, acc_y_max, -acc_y_max, Kp_vel_y, Kd_vel_y, Ki_vel_y, alpha_y, 0.0, antiwindup_radius_vel.at(1), integrator_vel_max.at(1));
-                pid_vel_z = new PID(odom_dtime, acc_z_max, -acc_z_max, Kp_vel_z, Kd_vel_z, Ki_vel_z, alpha_z, 0.0, antiwindup_radius_vel.at(2), integrator_vel_max.at(2));
-                receive_first_odom = true;
-            }
-            else
-            {
-                return;
-            }
-        }
+        // modify the sign of position and quaternion to match ROS convention
         mav_msgs::eigenOdometryFromMsg(*odometry_msg, &odometry); // TODO: what if odometry drifts? get rpy angles from autopilot
-        nav_msgs::Odometry goal_in_approriate_frame;
+
         Eigen::Vector3d current_rpy;
         odometry.getEulerAngles(&current_rpy);
 
-        if (receive_pos_cmd)
+        if (receive_vel_cmd)
         {
-            mav_msgs::RateThrust rate_thrust_cmd_tmp;
-
-            if (use_vehicle_frame) // goal is in vehicle frame
+            double yaw_rate_cmd = 0.0;
+            if (swap_yaw_rate) // receive reference yaw angle
             {
-                convertGoal2VehicleFrame(goal_odometry, odometry, &goal_in_approriate_frame);
-                rate_thrust_cmd_tmp.thrust.x = pid_x->calculate(0.0, -goal_in_approriate_frame.pose.pose.position.x);
-                rate_thrust_cmd_tmp.thrust.y = pid_y->calculate(0.0, -goal_in_approriate_frame.pose.pose.position.y);
-                rate_thrust_cmd_tmp.thrust.z = pid_z->calculate(0.0, -goal_in_approriate_frame.pose.pose.position.z);
-            }
-            else // goal is in world frame
-            {
-                msgOdometryFromEigen(goal_odometry, &goal_in_approriate_frame);
-                rate_thrust_cmd_tmp.thrust.x = pid_x->calculate(goal_odometry.position_W(0), odometry.position_W(0));
-                rate_thrust_cmd_tmp.thrust.y = pid_y->calculate(goal_odometry.position_W(1), odometry.position_W(1));
-                rate_thrust_cmd_tmp.thrust.z = pid_z->calculate(goal_odometry.position_W(2), odometry.position_W(2));
-            }
-
-            rate_thrust_cmd_tmp.angular_rates.x = 0.0;
-            rate_thrust_cmd_tmp.angular_rates.y = 0.0;
-            rate_thrust_cmd_tmp.angular_rates.z = 0.0;
-            rate_thrust_cmd = rate_thrust_cmd_tmp;
-        }
-        else if (receive_vel_cmd)
-        {
-            if (use_vehicle_frame)
-            {
-                // convert odom in W to V
-                Eigen::Vector3d linear_vel_W, linear_vel_V;
-                linear_vel_W = odometry.getVelocityWorld(); // odometry.velocity_B needs roll+pitch compensation
-                linear_vel_V = Eigen::AngleAxisd(-current_rpy(2), Eigen::Vector3d::UnitZ()) * linear_vel_W; // TODO: get linear_vel_V directly from odometry_msg
-                //ROS_INFO_STREAM("linear_vel_V: " << linear_vel_V.transpose());
-                //ROS_INFO_STREAM("linear_vel_W: " << linear_vel_W.transpose());
-                rate_thrust_cmd.thrust.x = pid_vel_x->calculate(cmd_vel_V.linear.x, linear_vel_V(0));
-                rate_thrust_cmd.thrust.y = pid_vel_y->calculate(cmd_vel_V.linear.y, linear_vel_V(1));
-                // fixed height for now
-                if (fixed_height == false)
-                {
-                    rate_thrust_cmd.thrust.z = pid_vel_z->calculate(cmd_vel_V.linear.z, linear_vel_V(2));
-                }
+                yaw_rate_cmd = calculateYawCtrl(goal_yaw, current_rpy(2));
             }
             else
             {
-                /* not implemented yet */
-                ROS_WARN("Received velocity cmd, use_vehicle_frame=false is not implemented yet");
+                yaw_rate_cmd = cmd_vel_received.angular.z;
             }
+            
+            // TODO: convert to body frame?
+            cmd_vel_send.linear = cmd_vel_received.linear;
+            cmd_vel_send.angular.x = 0.0;
+            cmd_vel_send.angular.y = 0.0;
+            cmd_vel_send.angular.z = yaw_rate_cmd;
+            cmd_vel_pub_.publish(cmd_vel_send);
         }
 
-        double current_roll = current_rpy(0);
-        double current_pitch = current_rpy(1);
-        double current_yaw = (use_vehicle_frame) ? 0.0 : current_rpy(2);
-
-        // if (fixed_height && (receive_thrust_cmd || receive_vel_cmd) && receive_first_goal)
-        // {
-        //     // modify z thrust to keep the same height
-        //     rate_thrust_cmd.thrust.z = pid_z->calculate(goal_odometry.position_W(2), odometry.position_W(2));
-        // }
-
-        if (fixed_height && (receive_thrust_cmd || receive_vel_cmd))
-        {
-            // modify z thrust to keep the same height
-            if (use_range_sensor)
-            {
-                if (has_new_range)
-                {
-                    double z_range_compensated = range_value.range * (cos(current_roll) * cos(current_pitch));
-                    has_new_range = false;
-                    // ROS_INFO_STREAM("z_range_compensated:" << z_range_compensated);
-                    rate_thrust_cmd.thrust.z = pid_z->calculate(z_static, z_range_compensated);
-                }
-                ros::Duration time_diff = ros::Time::now() - range_value.header.stamp;
-                if (time_diff.toSec() > 0.25)
-                {
-                    ROS_WARN("RANGE MSG rate is LOW");
-                }
-            }
-            else
-            {
-                rate_thrust_cmd.thrust.z = pid_z->calculate(z_static, odometry.position_W(2));
-            }
-        }
-        
-        mav_msgs::RateThrust reference = rate_thrust_cmd;
-        mav_msgs::RollPitchYawrateThrustPtr rpyrate_thrust_cmd(new mav_msgs::RollPitchYawrateThrust);
-
-        Eigen::Vector3d thrust_sp;
-        thrust_sp << reference.thrust.x, reference.thrust.y, reference.thrust.z;
-        thrust_sp = (thrust_sp + Eigen::Vector3d(0, 0, kGravity)) * mass;
-        Eigen::Vector3d thrust_norm = thrust_sp.normalized();
-
-        double cphi_stheta = thrust_norm(0) * cos(current_yaw) + thrust_norm(1) * sin(current_yaw);
-        double sphi = thrust_norm(0) * sin(current_yaw) - thrust_norm(1) * cos(current_yaw);
-        double cphi_ctheta = thrust_norm(2);
-        if (cphi_ctheta != 0)
-        {
-            rpyrate_thrust_cmd->pitch = atan2(cphi_stheta, cphi_ctheta);
-            rpyrate_thrust_cmd->roll = atan2(sphi, sqrt(cphi_stheta * cphi_stheta + cphi_ctheta * cphi_ctheta));
-        }
-        else
-        {
-            rpyrate_thrust_cmd->pitch = 0;
-            rpyrate_thrust_cmd->roll = 0;
-        }
-
-        // YAW ctrl
-        if (receive_pos_cmd)
-        {
-            Eigen::Vector3d goal_euler_angles;
-            double yaw_rate_cmd = calculateYawCtrl(goal_yaw, current_rpy(2));
-            rpyrate_thrust_cmd->yaw_rate = yaw_rate_cmd;
-        }
-        else if (receive_vel_cmd)
-        {
-            if (swap_yaw_rate) // use cmd_vel.twist.z to store reference yaw angle
-            {
-                double yaw_rate_cmd = calculateYawCtrl(cmd_vel_V.angular.z, current_rpy(2));
-                rpyrate_thrust_cmd->yaw_rate = yaw_rate_cmd;
-            }
-            else
-            {
-                rpyrate_thrust_cmd->yaw_rate = cmd_vel_V.angular.z;
-            }
-        }
-        else if (receive_thrust_cmd)
-        {
-            if (use_yaw_stabilize)
-            {
-                double yaw_rate_cmd = calculateYawCtrl(0.0, current_rpy(2));
-                rpyrate_thrust_cmd->yaw_rate = yaw_rate_cmd;
-            }
-            else
-            {
-                if (swap_yaw_rate) // use reference.angular_rates.z to store reference yaw angle
-                {
-                    double yaw_rate_cmd = calculateYawCtrl(reference.angular_rates.z, current_rpy(2));
-                    rpyrate_thrust_cmd->yaw_rate = yaw_rate_cmd;
-                }
-                else
-                {
-                    rpyrate_thrust_cmd->yaw_rate = reference.angular_rates.z;
-                }
-            }
-        }
-
-        rpyrate_thrust_cmd->thrust.x = 0;
-        rpyrate_thrust_cmd->thrust.y = 0;
-        // thrust compensation
-        rpyrate_thrust_cmd->thrust.z = thrust_sp(2) / (cos(current_roll) * cos(current_pitch));
-
-        // OR cross-product of thrust vector and current z_B axis
-        //rpyrate_thrust_cmd->thrust.z = thrust_sp(0)*(cos(current_roll)*sin(current_pitch)*cos(current_yaw) + sin(current_roll)*sin(current_yaw))
-        //                           + thrust_sp(1)*(cos(current_roll)*sin(current_pitch)*sin(current_yaw) - sin(current_roll)*cos(current_yaw))
-        //                           + thrust_sp(2)*cos(current_roll)*cos(current_pitch);
-
-        if (!is_sim) // real robot, needs to convert yaw_rate cmd to yaw_cmd
-        {
-            static double yaw_ref = current_rpy(2);
-            double yaw_rate_cmd = rpyrate_thrust_cmd->yaw_rate;
-            yaw_ref += yaw_rate_cmd * odom_dtime;
-            yaw_ref = wrapYaw(yaw_ref);
-            if (swap_yaw_rate)
-            {
-                if (yaw_rate_cmd > 0)
-                {
-                    if (yaw_ref > goal_yaw)
-                    {
-                        yaw_ref = goal_yaw;
-                    }
-                }
-                else if (yaw_rate_cmd < 0)
-                {
-                    if (yaw_ref < goal_yaw)
-                    {
-                        yaw_ref = goal_yaw;
-                    }
-                }
-            }
-            rpyrate_thrust_cmd->yaw_rate = yaw_ref;            
-        }
-
-        rpyrate_thrust_cmd->header.frame_id = frame_id;
-        rpyrate_thrust_cmd->header.stamp = ros::Time::now();
-
-        cmd_roll_pitch_yawrate_thrust_pub_.publish(rpyrate_thrust_cmd);
-
-        // publish tf for vehicle frame
-        // static tf::TransformBroadcaster br;
-        // tf::Transform transform;
-        // transform.setOrigin( tf::Vector3(odometry.position_W(0), odometry.position_W(1), odometry.position_W(2)) );
-        // tf::Quaternion q;
-        // q.setRPY(0, 0, current_rpy(2));
-        // transform.setRotation(q);
-        // br.sendTransform(tf::StampedTransform(transform, odometry_msg->header.stamp, "world", vehicle_frame_id));
     }
 
 } // namespace lmf_control
