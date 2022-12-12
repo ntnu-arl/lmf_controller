@@ -96,6 +96,8 @@ namespace lmf_control
         mav_msgs::RateThrust rate_thrust_cmd;
         mav_msgs::EigenOdometry goal_odometry, goal_training_odometry;
         geometry_msgs::Twist cmd_vel_received, cmd_vel_send;
+        geometry_msgs::Pose cmd_pose_received;
+        geometry_msgs::PoseStamped cmd_pose_send;
         double goal_yaw;
         std::string frame_id, vehicle_frame_id;
         double K_yaw;
@@ -128,7 +130,7 @@ namespace lmf_control
         ros::Subscriber goal_training_pose_sub_;
         ros::Subscriber cmd_velocity_sub_;
 
-        ros::Publisher cmd_roll_pitch_yawrate_thrust_pub_, cmd_vel_pub_;
+        ros::Publisher cmd_roll_pitch_yawrate_thrust_pub_, cmd_vel_pub_, cmd_pose_pub_;
 
         ros::ServiceServer reset_service_;
 

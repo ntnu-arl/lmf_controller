@@ -108,12 +108,13 @@ namespace lmf_control
         //                                     &LMFControllerNode::RateThrustCallback, this);
         odometry_sub_ = nh.subscribe(kDefaultOdometryTopic, 1, &LMFControllerNode::OdometryCallback, this);
         // range_sub_ = nh.subscribe("range_sensor", 1, &LMFControllerNode::RangeCallback, this);
-        // goal_pose_sub_ = nh.subscribe("goal", 1, &LMFControllerNode::CmdPositionCallback, this);
+        goal_pose_sub_ = nh.subscribe("goal", 1, &LMFControllerNode::CmdPositionCallback, this);
         cmd_velocity_sub_ = nh.subscribe("cmd_velocity", 1, &LMFControllerNode::CmdVelocityCallback, this);
 
         // cmd_roll_pitch_yawrate_thrust_pub_ = nh.advertise<mav_msgs::RollPitchYawrateThrust>(
         //     kDefaultCommandRollPitchYawrateThrustTopic, 1);
         cmd_vel_pub_ = nh.advertise<geometry_msgs::Twist>("/mavros/setpoint_velocity/cmd_vel_unstamped", 1);
+        cmd_pose_pub_ = nh.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_position/local", 1);
 
         reset_service_ = nh.advertiseService("pid_reset", &LMFControllerNode::ResetCallback, this);
 
@@ -162,24 +163,19 @@ namespace lmf_control
     // should be in a seperate node
     void LMFControllerNode::CmdPositionCallback(const geometry_msgs::Pose &goal)
     {
-        geometry_msgs::Pose goal_msg(goal);
-        if ((goal_msg.orientation.x == 0.0) && (goal_msg.orientation.y == 0.0) && (goal_msg.orientation.z == 0.0) && (goal_msg.orientation.w == 0.0))
+        cmd_pose_received = goal;
+        if ((cmd_pose_received.orientation.x == 0.0) && (cmd_pose_received.orientation.y == 0.0) && (cmd_pose_received.orientation.z == 0.0) && (cmd_pose_received.orientation.w == 0.0))
         {
-            goal_msg.orientation.w = 1.0;
+            cmd_pose_received.orientation.w = 1.0;
         }
-        convertGoal2WorldFrame(goal_msg, odometry, &goal_odometry);
-        Eigen::Vector3d goal_euler_angles;
-        goal_odometry.getEulerAngles(&goal_euler_angles);
-        goal_yaw = wrapYaw(goal_euler_angles(2));
+        
         receive_pos_cmd = true;
         receive_first_goal = true;
         receive_vel_cmd = false;
+        receive_thrust_cmd = false;
         // DEBUG
-        ROS_INFO_STREAM("Received goal: pos x " << goal_msg.position.x << ",y " << goal_msg.position.y << ",z " << goal_msg.position.z
-                                                << ", orientation x " << goal_msg.orientation.x << ",y " << goal_msg.orientation.y << ",z " << goal_msg.orientation.z << ",w " << goal_msg.orientation.w);
-        ROS_INFO_STREAM("Odom in world: pos x " << odometry.position_W(0) << ",y " << odometry.position_W(1) << ",z " << odometry.position_W(2));
-        ROS_INFO_STREAM("Goal in world: pos x " << goal_odometry.position_W(0) << ",y " << goal_odometry.position_W(1) << ",z " << goal_odometry.position_W(2));
-        ROS_INFO_STREAM("Goal yaw:" << goal_yaw * 180 / M_PI << " deg");
+        ROS_INFO_STREAM("Received goal: pos x " << cmd_pose_received.position.x << ",y " << cmd_pose_received.position.y << ",z " << cmd_pose_received.position.z
+                                                << ", orientation x " << cmd_pose_received.orientation.x << ",y " << cmd_pose_received.orientation.y << ",z " << cmd_pose_received.orientation.z << ",w " << cmd_pose_received.orientation.w);
         ROS_INFO("**********");
     }
 
@@ -357,7 +353,12 @@ namespace lmf_control
             cmd_vel_send.angular.z = yaw_rate_cmd;
             cmd_vel_pub_.publish(cmd_vel_send);
         }
-
+        else if (receive_pos_cmd)
+        {
+            cmd_pose_send.header.stamp = ros::Time::now();
+            cmd_pose_send.pose = cmd_pose_received;
+            cmd_pose_pub_.publish(cmd_pose_send);
+        }
     }
 
 } // namespace lmf_control
